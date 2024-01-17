@@ -11,20 +11,57 @@ def load_data():
     # データベースに接続
     conn = sqlite3.connect(db_path)
     # SQLクエリを実行し、結果をDataFrameに読み込む
-    query = "SELECT * FROM properties"
+    query = "SELECT * FROM property_table"  # テーブル名を property_table に修正
     df = pd.read_sql_query(query, conn)
+
+    def extract_age(age_str):
+        # ハイフンで文字列を分割し、最初の部分を整数に変換
+        parts = age_str.split('-')
+        if len(parts) >= 1:
+            try:
+                age = int(parts[0])
+                return age
+            except ValueError:
+                pass
+        return -1  # パースできない場合は -1 を返す
+
+    def extract_floor(floor_str):
+        # '-'または'-'の後に続く数字を抽出して整数に変換
+        parts = floor_str.split('-')
+        if len(parts) >= 1:
+            try:
+                floor = int(parts[0])
+                return floor
+            except ValueError:
+                pass
+        return -1  # パースできない場合は -1 を返す
+
+    # 'age'列に対して上記の関数を適用
+    df['age'] = df['age'].apply(extract_age)
+    # 'floor'列に対して上記の関数を適用
+    df['floor'] = df['floor'].apply(extract_floor)
+
+    # 列のデータ型を変換
+    df['age'] = df['age'].astype(int)
+    df['floor'] = df['floor'].astype(int)
+    df['fee'] = df['fee'].astype(int)
+    df['management_fee'] = df['management_fee'].astype(int)
+    df['deposit'] = df['deposit'].astype(int)
+    df['gratuity'] = df['gratuity'].astype(int)
+    df['area'] = df['area'].astype(float)
+    df['access1_walking_minutes'] = df['access1_walking_minutes'].astype(int)
+    df['access2_walking_minutes'] = df['access2_walking_minutes'].astype(int)
+
     conn.close()
     return df
 
 df = load_data()
 
-
-
 # 希望条件
 # 区リスト
 wards_list = [
     '千代田区', '中央区', '港区', '新宿区', '文京区', '台東区', '墨田区', '江東区',
-    '品川区', '目黒区', '大田区', '世田谷区', '渋谷区', '中野区', '杉並区', '豊島区', 
+    '品川区', '目黒区', '大田区', '世田谷区', '渋谷区', '中野区', '杉並区', '豊島区',
     '北区', '荒川区', '板橋区', '練馬区', '足立区', '葛飾区', '江戸川区'
     ]
 # 間取りリスト
@@ -32,9 +69,8 @@ floor_list = [
     '2K', '2DK', '2LDK', '3K', '3DK', '3LDK', '3SLDK', '4K', '4SK', '4SDK'
     ]
 
-
 # 会員登録・Loginボタンを画面右上に配置
-col1, col2, col3 = st.columns([9,2,2])
+col1, col2, col3 = st.columns([9, 2, 2])
 with col2:
     st.button('会員登録', type='secondary')
 with col3:
@@ -59,8 +95,10 @@ min_rent, max_rent = st.sidebar.slider(
     min_value=0,
     max_value=30,
     value=(0, 30))
-min_rent_yen = min_rent * 10000
-max_rent_yen = max_rent * 10000
+
+# 賃料を整数型に変換
+min_rent = int(min_rent * 10000)
+max_rent = int(max_rent * 10000)
 
 # 駅徒歩
 st.sidebar.text('3.駅徒歩')
@@ -94,17 +132,19 @@ min_menseki, max_menseki = st.sidebar.slider(
 button = st.sidebar.button('検索', type='primary')
 
 # 検索条件でデータを絞り込み、結果を df_search に代入
-df_search = df.query(
-    f'(ward in {wards_select}) and ({min_rent_yen} <= fee <= {max_rent_yen}) and ({min_walk_time} <= access1_walking_minutes <= {max_walk_time}) and (floor_plan in {floor_select}) and ({min_age} <= age <= {max_age}) and ({min_menseki} <= area <= {max_menseki})')
+df_search = df[df['ward'].isin(wards_select) & (min_rent <= df['fee']) & (df['fee'] <= max_rent) &
+                (min_walk_time <= df['access1_walking_minutes']) & (df['access1_walking_minutes'] <= max_walk_time) &
+                df['floor_plan'].isin(floor_select) & (min_age <= df['age']) & (df['age'] <= max_age) &
+                (min_menseki <= df['area']) & (df['area'] <= max_menseki)]
 
 # 検索結果のヒット件数を取得
 hit = len(df_search)
 
 # map用に緯度、経度データだけを df_loc に代入。geopyで緯度経度取得できなかった欠損地は削除。
-df_loc = df_search[['lat', 'lon']].dropna()
-
-# df_searchのカラム名を全て日本語に直す
-df_search.columns = ['物件名', '住所', '築年数', '構造', '階数', '賃料', '管理費', '敷金', '礼金', '間取り', '占有面積', '最寄駅路線1', '最寄駅1', '駅徒歩1', '最寄駅路線2', '最寄駅2', '駅徒歩2', '最寄駅路線3', '最寄駅3', '駅徒歩3', '緯度', '経度']
+if 'lat' in df_search.columns and 'lon' in df_search.columns:
+    df_loc = df_search[['lat', 'lon']].dropna()
+else:
+    df_loc = pd.DataFrame({'lat': [], 'lon': []})
 
 # 検索ボタンを押した際に、結果を表示
 if button:
